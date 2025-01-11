@@ -138,7 +138,7 @@ impl RawData {
                                         .map(|x: &[u8]| u16::from_le_bytes(x.try_into().unwrap()))
                                         .collect::<Vec<u16>>(),
                                 );
-                                // println!("{}", format!("text: {}", text).green());
+                                println!("{}", format!("text: {}", text).green());
                                 texts.push(TextElement::from_text(text));
                             }
                             0x02 => {

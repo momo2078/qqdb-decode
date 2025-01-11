@@ -157,30 +157,40 @@ fn main() -> Result<()> {
                         "群表 {} 不在群列表里, 找到可能匹配的: {:?}, 结果 {}",
                         table_name,
                         possible_group_uin,
-                        if groups.contains(&possible_group_uin) {"存在"} else {"不存在"}
+                        if groups.contains(&possible_group_uin) {
+                            "✅存在"
+                        } else {
+                            "❌不存在"
+                        }
                     );
+                    if !groups.contains(&possible_group_uin) {
+                        let mut stmt =
+                            conn.prepare(&format!("SELECT * FROM {} limit 50", table_name))?;
+                        // let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name))?;
+                        let rows = stmt.query_map([], |row| {
+                            let time: i64 = row.get(0)?;
+                            let rand: i64 = row.get(1)?;
+                            let sender_uin: i64 = row.get(2)?;
+                            let msg_content: Vec<u8> = row.get(3)?;
+                            let info: Vec<u8> = row.get(4)?;
+                            Ok(raw::RawData::new(time, rand, sender_uin, msg_content, info))
+                        })?;
+                        for row in rows {
+                            if row.is_err() {
+                                continue;
+                            }
+                            let row = row.unwrap();
+                            let data = row.decode();
+                            // event!(Level::INFO, "找到数据: {}", data);
+                        }
+                    }
+                } else {
+                    event!(Level::DEBUG, "找到群: {}", table_name);
                 }
+            } else {
+                // event!(Level::DEBUG, "找到表: {}", table_name);
             }
-            // event!(Level::DEBUG, "找到表: {}", table_name);
             // 随便选一个出来
-            let mut stmt = conn.prepare(&format!("SELECT * FROM {} limit 50", table_name))?;
-            // let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name))?;
-            let rows = stmt.query_map([], |row| {
-                let time: i64 = row.get(0)?;
-                let rand: i64 = row.get(1)?;
-                let sender_uin: i64 = row.get(2)?;
-                let msg_content: Vec<u8> = row.get(3)?;
-                let info: Vec<u8> = row.get(4)?;
-                Ok(raw::RawData::new(time, rand, sender_uin, msg_content, info))
-            })?;
-            for row in rows {
-                if row.is_err() {
-                    continue;
-                }
-                let row = row.unwrap();
-                let data = row.decode();
-                // event!(Level::INFO, "找到数据: {}", data);
-            }
         }
     }
 

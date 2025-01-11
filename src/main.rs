@@ -8,6 +8,45 @@ use tracing::{event, Level};
 mod elements;
 mod raw;
 
+/*
+https://github.com/Icalingua-plus-plus/oicq-icalingua-plus-plus/blob/3b6d2047f0c898efaf53a0075dd5d24dca234877/lib/common.js#L108-L127
+function uin2code(groupUin) {
+    let left = Math.floor(groupUin / 1000000);
+    if (left >= 202 && left <= 212)
+        left -= 202;
+    else if (left >= 480 && left <= 488)
+        left -= 469;
+    else if (left >= 2100 && left <= 2146)
+        left -= 2080;
+    else if (left >= 2010 && left <= 2099)
+        left -= 1943;
+    else if (left >= 2147 && left <= 2199)
+        left -= 1990;
+    else if (left >= 2600 && left <= 2651)
+        left -= 2265;
+    else if (left >= 3800 && left <= 3989)
+        left -= 3490;
+    else if (left >= 4100 && left <= 4199)
+        left -= 3890;
+    return left * 1000000 + groupUin % 1000000;
+}
+     */
+pub fn uin_2_code(uin: u64) -> u64 {
+    let left = uin / 1_000_000;
+    uin % 1_000_000
+        + (match left {
+            202..=212 => left - 202,
+            480..=488 => left - 469,
+            2100..=2146 => left - 2080,
+            2010..=2099 => left - 1943,
+            2147..=2199 => left - 1990,
+            2600..=2651 => left - 2265,
+            3800..=3989 => left - 3490,
+            4100..=4199 => left - 3890,
+            x => x,
+        } * 1_000_000)
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
@@ -110,26 +149,19 @@ fn main() -> Result<()> {
                     .unwrap();
                 if !groups.contains(&uin) {
                     // 警告
-                    // 截出后6位, 然后 contains 检测
-                    let uin = uin.to_string();
-                    let uin = &uin[uin.len() - 6..];
-                    let new_uin = uin.parse::<u64>().unwrap();
-                    let finds = groups
-                        .iter()
-                        .filter(|&&x| x.to_string().contains(&new_uin.to_string()))
-                        .collect::<Vec<_>>();
-                    // if !finds.is_empty() {
-                    //     println!("{table_name} {:?}", finds);
-                    // }
+                    // 感谢 oicq
+                    // https://github.com/Icalingua-plus-plus/oicq-icalingua-plus-plus/blob/3b6d2047f0c898efaf53a0075dd5d24dca234877/lib/common.js#L108-L127
+                    let possible_group_uin = uin_2_code(uin);
                     event!(
                         Level::WARN,
-                        "群表 {} 不在群列表里, 找到可能匹配的: {:?}",
+                        "群表 {} 不在群列表里, 找到可能匹配的: {:?}, 结果 {}",
                         table_name,
-                        finds
+                        possible_group_uin,
+                        if groups.contains(&possible_group_uin) {"存在"} else {"不存在"}
                     );
                 }
             }
-            event!(Level::DEBUG, "找到表: {}", table_name);
+            // event!(Level::DEBUG, "找到表: {}", table_name);
             // 随便选一个出来
             let mut stmt = conn.prepare(&format!("SELECT * FROM {} limit 50", table_name))?;
             // let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name))?;

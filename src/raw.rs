@@ -222,7 +222,7 @@ impl RawData {
                     for byte in payload[3..3 + len as usize].iter() {
                         id = (id << 8) | *byte as u64;
                     }
-                    // println!("{}", format!("表情: {}", id).green());
+                    // println!("{} {len} {:?}", format!("表情: {}", id).green(), payload);
                 }
                 0x03 => {
                     // 群图片

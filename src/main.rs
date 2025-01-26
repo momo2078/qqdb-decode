@@ -118,6 +118,8 @@ fn main() -> Result<()> {
     // 获取所有的表名
     let tables = stmt.query_map([], |row| row.get::<_, String>(0))?;
 
+    let mut msg_count = 0_u64;
+
     for table_name in tables {
         if table_name.is_err() {
             continue;
@@ -126,6 +128,16 @@ fn main() -> Result<()> {
         if !table_name.contains("$")
             && (table_name.contains("group") || table_name.contains("buddy"))
         {
+            let mut stmt = conn.prepare(&format!("SELECT COUNT(*) FROM {}", table_name))?;
+            let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+            for row in rows {
+                if row.is_err() {
+                    continue;
+                }
+                let count = row.unwrap();
+                msg_count += count as u64;
+            }
+
             if table_name.contains("buddy") {
                 // 检验是不是在好友列表里
                 let uin = table_name
@@ -164,25 +176,25 @@ fn main() -> Result<()> {
                         }
                     );
                     if !groups.contains(&possible_group_uin) {
-                        let mut stmt =
-                            conn.prepare(&format!("SELECT * FROM {} limit 50", table_name))?;
-                        // let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name))?;
-                        let rows = stmt.query_map([], |row| {
-                            let time: i64 = row.get(0)?;
-                            let rand: i64 = row.get(1)?;
-                            let sender_uin: i64 = row.get(2)?;
-                            let msg_content: Vec<u8> = row.get(3)?;
-                            let info: Vec<u8> = row.get(4)?;
-                            Ok(raw::RawData::new(time, rand, sender_uin, msg_content, info))
-                        })?;
-                        for row in rows {
-                            if row.is_err() {
-                                continue;
-                            }
-                            let row = row.unwrap();
-                            let data = row.decode();
-                            // event!(Level::INFO, "找到数据: {}", data);
-                        }
+                        // let mut stmt =
+                        //     conn.prepare(&format!("SELECT * FROM {} limit 50", table_name))?;
+                        // // let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name))?;
+                        // let rows = stmt.query_map([], |row| {
+                        //     let time: i64 = row.get(0)?;
+                        //     let rand: i64 = row.get(1)?;
+                        //     let sender_uin: i64 = row.get(2)?;
+                        //     let msg_content: Vec<u8> = row.get(3)?;
+                        //     let info: Vec<u8> = row.get(4)?;
+                        //     Ok(raw::RawData::new(time, rand, sender_uin, msg_content, info))
+                        // })?;
+                        // for row in rows {
+                        //     if row.is_err() {
+                        //         continue;
+                        //     }
+                        //     let row = row.unwrap();
+                        //     let data = row.decode();
+                        //     // event!(Level::INFO, "找到数据: {}", data);
+                        // }
                     }
                 } else {
                     event!(Level::DEBUG, "找到群: {}", table_name);
@@ -193,6 +205,8 @@ fn main() -> Result<()> {
             // 随便选一个出来
         }
     }
+
+    event!(Level::INFO, "共有 {} 条消息", msg_count);
 
     Ok(())
 }

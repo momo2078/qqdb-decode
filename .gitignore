@@ -1,1 +1,8 @@
 /target
+*.db
+*.csv
+*.json
+*.txt
+*.log
+
+__pycache__/

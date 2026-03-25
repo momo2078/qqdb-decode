@@ -258,6 +258,26 @@ def find_qq_bin_dir():
     return None
 
 
+def resolve_qq_bin_dir(cli_qq_bin: str | None):
+    """解析 QQ Bin 目录，优先使用命令行参数"""
+    if cli_qq_bin:
+        qq_bin = os.path.abspath(cli_qq_bin)
+        if not os.path.isdir(qq_bin):
+            print(f"[ERR] 指定的 QQ Bin 目录不存在: {qq_bin}")
+            sys.exit(1)
+        if not os.path.exists(os.path.join(qq_bin, "KernelUtil.dll")):
+            print(f"[ERR] 指定目录里缺少 KernelUtil.dll: {qq_bin}")
+            sys.exit(1)
+        return qq_bin
+
+    qq_bin = find_qq_bin_dir()
+    if not qq_bin:
+        print("[ERR] 未找到 QQ 安装目录的 Bin 文件夹")
+        print("   可通过 --qq-bin 手动指定")
+        sys.exit(1)
+    return qq_bin
+
+
 def strip_qq_header(src, dst):
     """去除前 1024 字节的 QQ 扩展头"""
     with open(src, "rb") as f:
@@ -300,7 +320,9 @@ def build_output_path(src_path, db_dir, output_dir):
     return os.path.join(output_dir, rel_path)
 
 
-def phase_decrypt_all(keys_file: str, db_dir: str, output_dir: str) -> dict:
+def phase_decrypt_all(
+    keys_file: str, db_dir: str, output_dir: str, cli_qq_bin: str | None = None
+) -> dict:
     """Phase 2: 批量调用 pcqq_batch_decrypt.exe 解密所有数据库"""
     print(f"\n{'='*60}")
     print("[Phase 2] 批量解密")
@@ -319,10 +341,7 @@ def phase_decrypt_all(keys_file: str, db_dir: str, output_dir: str) -> dict:
     print(f"  输出目录: {output_dir}")
 
     # 查找 QQ Bin 目录
-    qq_bin = find_qq_bin_dir()
-    if not qq_bin:
-        print("[ERR] 未找到 QQ 安装目录的 Bin 文件夹")
-        sys.exit(1)
+    qq_bin = resolve_qq_bin_dir(cli_qq_bin)
     print(f"  QQ Bin: {qq_bin}")
 
     # 确保 pcqq_batch_decrypt.exe 可用
@@ -819,12 +838,14 @@ def main():
 示例:
   python pcqq_pipeline.py <QQ数据库目录>                              # 完整流程
   python pcqq_pipeline.py <QQ数据库目录> --skip-keys                  # 已有 keys.json
+  python pcqq_pipeline.py <QQ数据库目录> --skip-keys --qq-bin <QQ Bin目录>      # 手动指定 QQ Bin
   python pcqq_pipeline.py --skip-keys --skip-decrypt --decrypt-dir <解密后数据库目录>  # 只做解码
 """,
     )
     parser.add_argument("db_dir", nargs="?", default=None, help="QQ 数据库目录（解密阶段必须）")
     parser.add_argument("--keys-file", default="keys.json", help="密钥文件路径")
     parser.add_argument("--decrypt-dir", default=None, help="解密后数据库目录（默认: <db_dir>/_decrypted）")
+    parser.add_argument("--qq-bin", default=None, help="QQ 安装目录的 Bin 路径")
     parser.add_argument("--skip-keys", action="store_true", help="跳过密钥获取")
     parser.add_argument("--skip-decrypt", action="store_true", help="跳过解密")
     parser.add_argument("--skip-decode", action="store_true", help="跳过消息解码")
@@ -848,6 +869,7 @@ def main():
     if args.db_dir:
         print(f"  数据库目录: {args.db_dir}")
     print(f"  解密目录: {args.decrypt_dir}")
+    print(f"  QQ Bin: {args.qq_bin or '自动查找'}")
     print(
         f"  跳过: {'密钥' if args.skip_keys else '' + ('解密' if args.skip_decrypt else '') + ('解码' if args.skip_decode else '') or "无"}"
     )
@@ -872,7 +894,9 @@ def main():
     # Phase 2
     if not args.skip_decrypt:
         t0 = time.perf_counter()
-        decrypt_stats = phase_decrypt_all(args.keys_file, args.db_dir, args.output_dir)
+        decrypt_stats = phase_decrypt_all(
+            args.keys_file, args.db_dir, args.decrypt_dir, args.qq_bin
+        )
         timings["Phase 2 批量解密"] = time.perf_counter() - t0
     else:
         print(f"\n-- 跳过 Phase 2 (解密)")
@@ -881,7 +905,7 @@ def main():
     # Phase 3
     if not args.skip_decode:
         t0 = time.perf_counter()
-        decode_result = phase_decode_messages(args.output_dir)
+        decode_result = phase_decode_messages(args.decrypt_dir)
         timings["Phase 3 消息解码"] = time.perf_counter() - t0
     else:
         print(f"\n-- 跳过 Phase 3 (解码)")
@@ -899,7 +923,7 @@ def main():
     if decode_result and decode_result.get("decoded"):
         engine = decode_result.get("engine", "?")
         print(f"  解码: Msg3.0.decrypted.db — 引擎={engine}")
-    print(f"  输出: {args.output_dir}")
+    print(f"  输出: {args.decrypt_dir}")
     print(f"\n耗时统计:")
     for name, dur in timings.items():
         print(f"  {name}: {fmt_duration(dur)}")

@@ -14,7 +14,7 @@
  *
  * 注意:
  *   - 必须放在 QQ 安装目录的 Bin 文件夹下运行 (需要 KernelUtil.dll)
- *   - 解密后的文件需要去除前 1024 字节的扩展头 (如果有)
+ *   - 解密后的文件会自动判断并去除前 1024 字节扩展头 (如果有)
  */
 
 #include <iostream>
@@ -285,39 +285,128 @@ bool decrypt_single(const char* dbPath, BYTE* key, int keyLen) {
     return true;
 }
 
-// 去除 QQ 扩展头 (前1024字节)
-bool strip_header(const char* srcPath, const char* dstPath) {
-    FILE* fin = fopen(srcPath, "rb");
-    if (!fin) return false;
+enum StripHeaderResult {
+    STRIP_HEADER_ERROR = -1,
+    STRIP_HEADER_NOT_NEEDED = 0,
+    STRIP_HEADER_DONE = 1
+};
 
-    // 检查是否有 QQ 扩展头
-    char header[16];
-    fread(header, 1, 16, fin);
-    if (memcmp(header, "SQLite header 3", 15) != 0) {
-        fclose(fin);
-        return false; // 不是 QQ 扩展头格式
-    }
-
-    // 跳过前1024字节
-    fseek(fin, 1024, SEEK_SET);
-
-    FILE* fout = fopen(dstPath, "wb");
-    if (!fout) { fclose(fin); return false; }
-
+bool copy_stream(FILE* fin, FILE* fout) {
     char buf[65536];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), fin)) > 0) {
-        fwrite(buf, 1, n, fout);
+        if (fwrite(buf, 1, n, fout) != n) {
+            return false;
+        }
     }
+    return ferror(fin) == 0 && ferror(fout) == 0;
+}
+
+int detect_strip_mode(FILE* fin) {
+    if (fseek(fin, 0, SEEK_SET) != 0) {
+        return STRIP_HEADER_ERROR;
+    }
+
+    char header[16] = {0};
+    if (fread(header, 1, 16, fin) < 15) {
+        return STRIP_HEADER_ERROR;
+    }
+
+    if (memcmp(header, "SQLite format 3", 15) == 0) {
+        return STRIP_HEADER_NOT_NEEDED;
+    }
+
+    if (memcmp(header, "SQLite header 3", 15) != 0) {
+        return STRIP_HEADER_ERROR;
+    }
+
+    if (fseek(fin, 1024, SEEK_SET) != 0) {
+        return STRIP_HEADER_ERROR;
+    }
+
+    char sqliteHeader[16] = {0};
+    if (fread(sqliteHeader, 1, 16, fin) < 15) {
+        return STRIP_HEADER_ERROR;
+    }
+
+    if (memcmp(sqliteHeader, "SQLite format 3", 15) == 0) {
+        return STRIP_HEADER_DONE;
+    }
+
+    return STRIP_HEADER_ERROR;
+}
+
+// 自适应去除 QQ 扩展头；如果原本没有扩展头，则直接复制
+int strip_header_adaptive(const char* srcPath, const char* dstPath) {
+    FILE* fin = fopen(srcPath, "rb");
+    if (!fin) return STRIP_HEADER_ERROR;
+
+    int mode = detect_strip_mode(fin);
+    if (mode == STRIP_HEADER_ERROR) {
+        fclose(fin);
+        return STRIP_HEADER_ERROR;
+    }
+
+    long offset = (mode == STRIP_HEADER_DONE) ? 1024L : 0L;
+    if (fseek(fin, offset, SEEK_SET) != 0) {
+        fclose(fin);
+        return STRIP_HEADER_ERROR;
+    }
+
+    FILE* fout = fopen(dstPath, "wb");
+    if (!fout) {
+        fclose(fin);
+        return STRIP_HEADER_ERROR;
+    }
+
+    bool ok = copy_stream(fin, fout);
     fclose(fin);
     fclose(fout);
+
+    if (!ok) {
+        DeleteFileA(dstPath);
+        return STRIP_HEADER_ERROR;
+    }
+
+    return mode;
+}
+
+// 原地自适应去除 QQ 扩展头；如果没有扩展头则不做任何修改
+bool strip_header_inplace(const char* dbPath, bool* stripped) {
+    FILE* fin = fopen(dbPath, "rb");
+    if (!fin) return false;
+
+    int mode = detect_strip_mode(fin);
+    fclose(fin);
+
+    if (mode == STRIP_HEADER_NOT_NEEDED) {
+        if (stripped) *stripped = false;
+        return true;
+    }
+
+    if (mode != STRIP_HEADER_DONE) {
+        return false;
+    }
+
+    string tmpPath = string(dbPath) + ".clean";
+    int ret = strip_header_adaptive(dbPath, tmpPath.c_str());
+    if (ret != STRIP_HEADER_DONE) {
+        DeleteFileA(tmpPath.c_str());
+        return false;
+    }
+
+    if (!MoveFileExA(tmpPath.c_str(), dbPath, MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileA(tmpPath.c_str());
+        return false;
+    }
+
+    if (stripped) *stripped = true;
     return true;
 }
 
 void print_usage(const char* prog) {
     cout << "用法:" << endl;
     cout << "  " << prog << " <db文件> <密钥hex(32个字符)>" << endl;
-    cout << "  " << prog << " --strip <原始db> <输出db>   (去除1024字节头)" << endl;
     cout << endl;
     cout << "示例:" << endl;
     cout << "  " << prog << " Msg3.0.db aabbccdd11223344aabbccdd11223344" << endl;
@@ -325,7 +414,7 @@ void print_usage(const char* prog) {
     cout << "注意:" << endl;
     cout << "  - 程序必须放在 QQ 安装目录 Bin 文件夹下运行" << endl;
     cout << "  - 解密会直接修改原文件！请先备份！" << endl;
-    cout << "  - 如果 db 有 QQ 扩展头，先用 --strip 去除" << endl;
+    cout << "  - 解密完成后会自动判断并去除 QQ 扩展头" << endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -334,21 +423,6 @@ int main(int argc, char* argv[]) {
     if (argc < 3) {
         print_usage(argv[0]);
         return 1;
-    }
-
-    // --strip 模式: 仅去除头部
-    if (string(argv[1]) == "--strip") {
-        if (argc < 4) {
-            cerr << "--strip 需要两个参数: <原始db> <输出db>" << endl;
-            return 1;
-        }
-        if (strip_header(argv[2], argv[3])) {
-            cout << "✅ 头部已去除: " << argv[3] << endl;
-        } else {
-            cerr << "❌ 去除头部失败 (可能不是 QQ 扩展头格式)" << endl;
-            return 1;
-        }
-        return 0;
     }
 
     // 解密模式
@@ -370,8 +444,18 @@ int main(int argc, char* argv[]) {
     }
 
     if (decrypt_single(dbPath, key, 16)) {
+        bool stripped = false;
+        if (!strip_header_inplace(dbPath, &stripped)) {
+            cerr << "\n❌ 解密后文件头异常，无法自适应处理扩展头" << endl;
+            return 4;
+        }
+
         cout << "\n🎉 解密完成！现在可以用 SQLite 工具打开 " << dbPath << endl;
-        cout << "   (如果有 QQ 扩展头，还需去除前 1024 字节)" << endl;
+        if (stripped) {
+            cout << "   已自动去除 QQ 扩展头" << endl;
+        } else {
+            cout << "   文件本身没有 QQ 扩展头，无需额外处理" << endl;
+        }
         return 0;
     } else {
         return 3;

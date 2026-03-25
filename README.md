@@ -123,16 +123,10 @@ cargo run --release --bin qqdb-decode -- <Msg3.0.decrypted.db> --index-db <Msg3.
 pcqq_batch_decrypt.exe Msg3.0.db aabbccdd11223344aabbccdd11223344
 ```
 
-去掉 1024 字节扩展头：
-
-```powershell
-pcqq_batch_decrypt.exe --strip Msg3.0.db Msg3.0.stripped.db
-```
-
 默认行为：
 
 - 直接解密会原地修改数据库
-- `--strip` 需要手动执行
+- 直接解密后会自动判断并去除 QQ 扩展头
 
 ## 其他工具
 

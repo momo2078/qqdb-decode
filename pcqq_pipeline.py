@@ -278,24 +278,6 @@ def resolve_qq_bin_dir(cli_qq_bin: str | None):
     return qq_bin
 
 
-def strip_qq_header(src, dst):
-    """去除前 1024 字节的 QQ 扩展头"""
-    with open(src, "rb") as f:
-        header = f.read(15)
-        if header != b"SQLite header 3":
-            return False
-        f.seek(1024)
-        data = f.read(1)
-        if not data:
-            return False
-
-    with open(src, "rb") as fin:
-        fin.seek(1024)
-        with open(dst, "wb") as fout:
-            shutil.copyfileobj(fin, fout)
-    return True
-
-
 def build_output_path(src_path, db_dir, output_dir):
     """为解密结果生成唯一输出路径"""
     src_path = os.path.normpath(src_path)
@@ -412,15 +394,8 @@ def phase_decrypt_all(
                 final_path = build_output_path(src_path, db_dir, output_dir)
                 os.makedirs(os.path.dirname(final_path), exist_ok=True)
 
-                with open(work_path, "rb") as f:
-                    check = f.read(15)
-                if check == b"SQLite header 3":
-                    strip_qq_header(work_path, final_path)
-                elif check == b"SQLite format 3":
-                    shutil.copy2(work_path, final_path)
-                else:
-                    shutil.copy2(work_path, final_path)
-                    print(f"   [WARN] 文件头异常: {check[:15]}")
+                # pcqq_batch_decrypt.exe 已负责自适应去扩展头，这里直接复制结果
+                shutil.copy2(work_path, final_path)
 
                 print(f"   [OK] -> {final_path}  ({fmt_duration(db_elapsed)})")
                 stats["success"] += 1

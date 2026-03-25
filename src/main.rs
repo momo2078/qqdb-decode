@@ -99,6 +99,8 @@ type CompactSourceRow = (i64, i64, Vec<u8>, Vec<u8>);
 type CompactDecodedRow = (i64, DecodedWriteback);
 
 const BULK_UPDATE_CHUNK_ROWS: usize = 4_096;
+const USAGE_LINE: &str =
+    "qqdb-decode <db_path> [--index-db PATH] [--refs-dir DIR] [--preview-limit N] [--no-update-db] [--with-detail-json] [--conservative] [--batch-size N] [--update-limit N] [--table-like SUBSTR]";
 
 #[derive(Debug)]
 struct LightCompactSourceRow {
@@ -155,7 +157,13 @@ fn main() -> Result<()> {
         .without_time()
         .init();
 
-    let options = parse_args()?;
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    if raw_args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_help();
+        return Ok(());
+    }
+
+    let options = parse_args(raw_args)?;
     event!(Level::INFO, "正在处理 {:?} 数据库", options.db_path);
 
     if !options.db_path.exists() {
@@ -217,18 +225,27 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn parse_args() -> Result<Options> {
-    let mut args = std::env::args().skip(1);
+fn print_help() {
+    println!("qqdb-decode");
+    println!();
+    println!("用法:");
+    println!("  {USAGE_LINE}");
+    println!("  --help/-h：显示帮助");
+    println!("  --no-update-db：仅作预览，不写回数据库");
+    println!("  --with-detail-json：额外写入详细 json 文本列");
+    println!("  --conservative：开启 SQLite 防崩溃保护（较慢）");
+}
+
+fn parse_args(raw_args: Vec<String>) -> Result<Options> {
+    let mut args = raw_args.into_iter();
     let db_path = PathBuf::from(args.next().ok_or_else(|| {
-        anyhow!(
-            "缺少数据库路径，用法: qqdb-decode <db_path> [--index-db PATH] [--refs-dir DIR] [--preview-limit N] [--update-db] [--with-detail-json] [--conservative] [--batch-size N] [--update-limit N] [--table-like SUBSTR]"
-        )
+        anyhow!("缺少数据库路径。用法: {USAGE_LINE}；也可用 --help 或 -h 查看帮助")
     })?);
 
     let mut index_db_path = None;
     let mut refs_dir = None;
     let mut preview_limit = 3_usize;
-    let mut update_db = false;
+    let mut update_db = true;
     let mut with_detail_json = false;
     let mut conservative_write = false;
     let mut batch_size = 200_000_usize;
@@ -257,9 +274,9 @@ fn parse_args() -> Result<Options> {
                     .parse::<usize>()
                     .with_context(|| format!("无效的 --preview-limit: {value}"))?;
             }
-            "--update-db" => update_db = true,
+            "--no-update-db" => update_db = false,
             "--with-detail-json" => with_detail_json = true,
-            "--conservative" | "--safe-write" => conservative_write = true,
+            "--conservative" => conservative_write = true,
             "--batch-size" => {
                 let value = args
                     .next()

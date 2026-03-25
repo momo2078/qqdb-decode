@@ -227,7 +227,7 @@ fn parse_args() -> Result<Options> {
                         .ok_or_else(|| anyhow!("--table-like 后缺少字符串"))?,
                 );
             }
-            "--conservative" | "--safe-write" => conservative_write = true,
+            "--conservative" => conservative_write = true,
             other => bail!("未知参数: {other}"),
         }
     }

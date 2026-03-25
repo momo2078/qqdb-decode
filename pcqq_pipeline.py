@@ -708,7 +708,7 @@ def phase_decode_messages(output_dir: str) -> dict:
         try:
             decode_t0 = time.perf_counter()
             proc = subprocess.Popen(
-                [str(qqdb_exe), msg_db, "--update-db", "--preview-limit", "0"],
+                [str(qqdb_exe), msg_db, "--preview-limit", "0"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
